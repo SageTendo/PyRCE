@@ -1,20 +1,26 @@
-from enum import Enum
+from enum import Enum, auto
 from typing import Tuple
 
 
 class MessageType(Enum):
+    """
+    Enum representing different message that can be sent or received to/from the server.
+    """
     NULL = -1
-    ERROR = 0
-    HEARTBEAT = 1
-    CONNECT = 2
-    DISCONNECT = 3
-    ECHO = 4
-    DATA = 5
-    INJECT = 6
-    EXECUTE = 7
+    ERROR = auto()
+    CONNECT = auto()
+    DISCONNECT = auto()
+    ECHO = auto()
+    DATA = auto()
+    INJECT = auto()
+    EXECUTE = auto()
 
 
 class Message:
+    """
+    Class representing a message that can be sent or received to/from the server.
+    """
+    __sender: Tuple[str, int]
     __type: MessageType
     __data: bytes
 
@@ -32,6 +38,11 @@ class Message:
 
     @staticmethod
     def from_bytes(data: bytes):
+        """
+        Creates a Message object from a byte representation of the message data.
+        :param data: The byte representation of the message data.
+        :return: A Message object.
+        """
         packet_type = MessageType(data[0])
         packet_data = b''
 
@@ -40,6 +51,10 @@ class Message:
         return Message(message_type=packet_type, data=packet_data)
 
     def to_bytes(self):
+        """
+        Converts the message to its byte representation.
+        :return: The byte representation of the message
+        """
         return bytes([self.__type.value]) + self.__data
 
     def get_type(self):
