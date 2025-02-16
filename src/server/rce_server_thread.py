@@ -27,13 +27,12 @@ class RCEServerThread(BaseClientThread):
                 message = self.receive_message()
                 if message.is_type(MessageType.DISCONNECT):
                     raise OSError("RECEIVED DISCONNECT")
-                elif message.is_type(MessageType.ECHO):
+
+                if message.is_type(MessageType.ECHO):
                     self.__logger.debug("Received echo", prefix=self.__log_prefix)
-                    self.__logger.debug(message.data.decode())
-                elif message.is_type(MessageType.DATA):
-                    self.__logger.debug("Received data", prefix=self.__log_prefix)
-                elif message.is_type(MessageType.CONNECT):
-                    self.__logger.debug("Received connect", prefix=self.__log_prefix)
+                    self.__logger.info(message.data.decode(), prefix=self.__log_prefix)
+                elif message.is_type(MessageType.FILE):
+                    self.__logger.debug("Received file", prefix=self.__log_prefix)
                 elif message.is_type(MessageType.ERROR):
                     self.__logger.debug("Received error", prefix=self.__log_prefix)
                 else:

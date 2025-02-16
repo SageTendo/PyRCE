@@ -6,12 +6,10 @@ class MessageType(Enum):
     """
     Enum representing different message that can be sent or received to/from the server.
     """
-    NULL = -1
     ERROR = auto()
-    CONNECT = auto()
     DISCONNECT = auto()
     ECHO = auto()
-    DATA = auto()
+    FILE = auto()
     INJECT = auto()
     EXECUTE = auto()
 
