@@ -93,6 +93,9 @@ class RCEServer:
         Synchronously closes all connected clients and clears the connected clients dictionary.
         """
         with Shared.client_synchronize_mutex:
+            if len(Shared.connected_clients) == 0:
+                return
+
             for client in Shared.connected_clients.values():
                 if not client.is_connected():
                     continue
