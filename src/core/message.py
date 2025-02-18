@@ -9,6 +9,8 @@ class MessageType(Enum):
     ERROR = auto()
     DISCONNECT = auto()
     ECHO = auto()
+    PUSH_FILE = auto()
+    PULL_FILE = auto()
     FILE = auto()
     INJECT = auto()
     EXECUTE = auto()
