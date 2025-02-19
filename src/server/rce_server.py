@@ -71,7 +71,7 @@ class RCEServer:
         """
         self.__running = False
 
-        self.close_all_clients()
+        self.__close_all_clients()
         if self.connection_thread:
             self.connection_thread.join()
         self.__socket.close()
@@ -104,6 +104,12 @@ class RCEServer:
             self.__logger.error(f"Failed to send message to {client_address}: {e}")
 
     def send_file_to_client(self, client_address: str, filename: str, destination_path: str = ""):
+        """
+        Sends a file to a specific client.
+        :param client_address: String representation of the client's address
+        :param filename: The name of the file to send to the client
+        :param destination_path: The destination path which the file will be saved client-side
+        """
         try:
             if client := self.__get_client_from_address(client_address):
                 client.send_file(filename, destination_path)
@@ -112,7 +118,25 @@ class RCEServer:
         except OSError as e:
             self.__logger.error(f"Failed to send file to {client_address}: {e}")
 
-    def close_all_clients(self):
+    def __get_client_from_address(self, client_address: str):
+        """
+        Returns a client with the given address
+        :param client_address: The address of the client (as IPV4)
+        :return: The client thread corresponding to the client address
+        """
+        if not re.match(config.IPV4_PATTERN, client_address):
+            self.__logger.error(f"Invalid client address: {client_address}")
+            return
+
+        host, port = client_address.split(":")
+        client_addr = (host, int(port))
+        with Shared.client_synchronize_mutex:
+            if not (client := Shared.connected_clients.get(client_addr)) or not client.is_connected():
+                self.__logger.error(f"Client '{client_addr}' not found")
+                return
+            return client
+
+    def __close_all_clients(self):
         """
         Synchronously closes all connected clients and clears the connected clients dictionary.
         """
@@ -138,21 +162,3 @@ class RCEServer:
 
     def get_address(self):
         return self.__host, self.__port
-
-    def __get_client_from_address(self, client_address: str):
-        """
-        Returns a client with the given address
-        :param client_address: The address of the client (as IPV4)
-        :return: The client thread corresponding to the client address
-        """
-        if not re.match(config.IPV4_PATTERN, client_address):
-            self.__logger.error(f"Invalid client address: {client_address}")
-            return
-
-        host, port = client_address.split(":")
-        client_addr = (host, int(port))
-        with Shared.client_synchronize_mutex:
-            if not (client := Shared.connected_clients.get(client_addr)) or not client.is_connected():
-                self.__logger.error(f"Client '{client_addr}' not found")
-                return
-            return client
