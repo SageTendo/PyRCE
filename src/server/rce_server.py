@@ -1,7 +1,10 @@
+import re
 import socket
 import threading
 from typing import Optional
 
+import config
+from src.core.exception import FileReadError
 from src.core.logger import Logger
 from src.core.message import Message
 from src.core.shared import Shared
@@ -86,7 +89,48 @@ class RCEServer:
                 try:
                     client.send_message(message)
                 except OSError as e:
-                    self.__logger.debug(f"Failed to send message to {client.get_address()}:{e}")
+                    self.__logger.error(f"Failed to send message to {client.get_address()}:{e}")
+
+    def send_message_to_client(self, client_address: str, message: Message):
+        """
+        Sends a message to a specific client.
+        :param client_address: String representation of the client's address
+        :param message: A message object representing the message to be sent to the client
+        """
+        if not re.match(config.IPV4_PATTERN, client_address):
+            self.__logger.error(f"Invalid client address: {client_address}")
+            return
+
+        host, port = client_address.split(":")
+        client_addr = (host, int(port))
+        with Shared.client_synchronize_mutex:
+            if not (client := Shared.connected_clients.get(client_addr)) or not client.is_connected():
+                self.__logger.error(f"Client '{client_addr}' not found")
+                return
+
+        try:
+            client.send_message(message)
+        except OSError as e:
+            self.__logger.error(f"Failed to send message to {client_addr}: {e}")
+
+    def send_file_to_client(self, client_address: str, filename: str, destination_path: str = ""):
+        if not re.match(config.IPV4_PATTERN, client_address):
+            self.__logger.error(f"Invalid client address: {client_address}")
+            return
+
+        host, port = client_address.split(":")
+        client_addr = (host, int(port))
+        with Shared.client_synchronize_mutex:
+            if not (client := Shared.connected_clients.get(client_addr)) or not client.is_connected():
+                self.__logger.error(f"Client '{client_addr}' not found")
+                return
+
+        try:
+            client.send_file(filename, destination_path)
+        except (FileNotFoundError, FileReadError) as e:
+            self.__logger.error(e)
+        except OSError as e:
+            self.__logger.error(f"Failed to send file to {client_addr}: {e}")
 
     def close_all_clients(self):
         """

@@ -1,9 +1,13 @@
 import abc
+import os.path
 import socket
 import threading
+from pathlib import Path
 from typing import Any, Optional
 
-from src.core.message import Message
+import config
+from src.core.exception import FileWriteError, MessageTypeError, FileReadError
+from src.core.message import Message, MessageType
 
 
 class BaseClientThread(threading.Thread):
@@ -102,6 +106,59 @@ class BaseClientThread(threading.Thread):
             return Message.from_bytes(self.__socket.recv(data_size))
         except OSError as error:
             raise error
+
+    def send_file(self, source_path: str, destination_path: str = ""):
+        """
+        Sends a file to the client/server.
+        :param source_path: The path to the file to be sent.
+        :param destination_path: The path where the file should be saved on the server.
+        :raises:
+            FileNotFoundError: When a file with the given path does not exist.
+            FileReadError: When an error occurs while reading the file.
+        """
+        filepath = Path(source_path)
+        if not filepath.exists():
+            raise FileNotFoundError(f"{filepath} does not exist")
+
+        if not filepath.is_file():
+            raise FileNotFoundError(f"{filepath} is not a file")
+
+        try:
+            with open(filepath, 'rb') as f:
+                file_data = f.read()
+        except OSError:
+            raise FileReadError(f"Failed to read file {filepath}")
+
+        filename_with_destination = os.path.join(destination_path, filepath.name).encode()
+        self.send_message(Message(message_type=MessageType.FILE_UPLOAD, data=filename_with_destination))
+        self.send_message(Message(message_type=MessageType.FILE, data=file_data))
+
+    def receive_file(self, filename: str, save_path: Path = None):
+        """
+        Receives a file from the server and saves it locally.
+        :param filename: The name of the file to be saved.
+        :param save_path: The path where the file should be saved (applies to client-side handling).
+        :raises:
+            MessageTypeError: When the next message is not of type MessageType.FILE.
+            FileWriteError: When an error occurs while writing the file.
+        """
+        file_message = self.receive_message()
+        if not file_message.is_type(MessageType.FILE):
+            raise MessageTypeError(f"Expected type: FILE. Received: {file_message.get_type()}")
+
+        if not save_path:  # Server-side handling
+            save_path = config.DOWNLOAD_DIR / f"{self.__address[0]}:{self.__address[1]}"
+        else:
+            save_path = save_path
+
+        if not save_path.exists():
+            os.makedirs(save_path, exist_ok=True)
+
+        try:
+            with open(save_path / filename, 'wb') as f:
+                f.write(file_message.data)
+        except OSError:
+            raise FileWriteError(f"Failed to save file {save_path}")
 
     def get_address(self):
         return self.__address
