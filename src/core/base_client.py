@@ -148,8 +148,6 @@ class BaseClientThread(threading.Thread):
 
         if not save_path:  # Server-side handling
             save_path = config.DOWNLOAD_DIR / f"{self.__address[0]}:{self.__address[1]}"
-        else:
-            save_path = save_path
 
         if not save_path.exists():
             os.makedirs(save_path, exist_ok=True)
