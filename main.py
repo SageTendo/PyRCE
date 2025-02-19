@@ -1,13 +1,14 @@
 import argparse
 
+import config
 from src.client.rce_client import RCEClient
 from src.console.server_cli import ServerCLI
 from src.server.rce_server import RCEServer
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--mode', '-m', type=str, default='server', choices=['server', 'client'])
-arg_parser.add_argument('--host', '-H', type=str, default='localhost')
-arg_parser.add_argument('--port', '-p', type=int, default=6000)
+arg_parser.add_argument('--host', '-H', type=str, default=config.HOST)
+arg_parser.add_argument('--port', '-p', type=int, default=config.PORT)
 arg_parser.add_argument('--debug', '-d', action='store_true', default=0)
 args = arg_parser.parse_args()
 
