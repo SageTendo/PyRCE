@@ -1,5 +1,4 @@
 from enum import Enum, auto
-from typing import Tuple
 
 
 class MessageType(Enum):
@@ -12,6 +11,7 @@ class MessageType(Enum):
     FILE_UPLOAD = auto()
     FILE_DOWNLOAD = auto()
     FILE = auto()
+    END_OF_FILE = auto()
     INJECT = auto()
     EXECUTE = auto()
 
@@ -20,21 +20,12 @@ class Message:
     """
     Class representing a message that can be sent or received to/from the server.
     """
-    __sender: Tuple[str, int]
     __type: MessageType
     __data: bytes
 
     def __init__(self, message_type: MessageType = None, data: bytes = None):
         self.__type = message_type
         self.__data = data if data else b''
-        self.__sender = ("", -1)
-
-    def get_sender(self):
-        return self.__sender
-
-    def set_sender(self, sender: Tuple[str, int]):
-        self.__sender = sender
-        return self
 
     @staticmethod
     def from_bytes(data: bytes):
@@ -68,4 +59,8 @@ class Message:
         return self.__data
 
     def __repr__(self):
-        return f"Packet(packet_type={self.__type}, data={self.__data})"
+        return (f"""
+        Message:
+          TYPE: {self.__type}
+          DATA: {self.__data}
+        """)

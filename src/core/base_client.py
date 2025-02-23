@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import config
-from src.core.exception import FileWriteError, MessageTypeError, FileReadError
+from src.core.exception import FileWriteError, FileReadError, MessageTypeError
 from src.core.message import Message, MessageType
 
 
@@ -79,7 +79,7 @@ class BaseClientThread(threading.Thread):
         :raises: OSError: If an error occurs while sending data over the socket.
         """
         try:
-            data = message.set_sender(self.__socket.getsockname()).to_bytes()
+            data = message.to_bytes()
             data_size = len(data).to_bytes(4, byteorder="little")
             self.__socket.sendall(data_size)
             self.__socket.sendall(data)
@@ -99,11 +99,32 @@ class BaseClientThread(threading.Thread):
        :returns: A Message object containing the data received from the socket.
        :raises: OSError: If an error occurs while receiving data or if the received message size is zero.
        """
+
+        def __receive_all(size):
+            """
+            Helper function to receive `size` bytes reliably.
+
+            :param size: Number of bytes to receive.
+            :returns: The received bytes.
+            :raises OSError: If the connection is closed unexpectedly.
+            """
+            buffer = bytearray()
+            while len(buffer) < size:
+                next_chunk_size = size - len(buffer)
+                if not (packet := self.__socket.recv(next_chunk_size)):
+                    raise OSError("Connection closed while receiving data")
+                buffer.extend(packet)
+            return bytes(buffer)
+
         try:
-            data_size = int.from_bytes(self.__socket.recv(4), byteorder='little')
-            if not data_size:
+            if not (data_size := self.__socket.recv(4)):
+                raise OSError("Connection closed by peer")
+
+            if not (data_size_as_int := int.from_bytes(data_size, byteorder='little')):
                 raise OSError("Received null bytes for message size")
-            return Message.from_bytes(self.__socket.recv(data_size))
+
+            data = __receive_all(data_size_as_int)
+            return Message.from_bytes(data)
         except OSError as error:
             raise error
 
@@ -123,15 +144,15 @@ class BaseClientThread(threading.Thread):
         if not filepath.is_file():
             raise FileNotFoundError(f"{filepath} is not a file")
 
-        try:
-            with open(filepath, 'rb') as f:
-                file_data = f.read()
-        except OSError:
-            raise FileReadError(f"Failed to read file {filepath}")
-
         filename_with_destination = os.path.join(destination_path, filepath.name).encode()
         self.send_message(Message(message_type=MessageType.FILE_UPLOAD, data=filename_with_destination))
-        self.send_message(Message(message_type=MessageType.FILE, data=file_data))
+        try:
+            with open(filepath, 'rb') as file:
+                while chunk := file.read(config.FILE_CHUNK_SIZE):
+                    self.send_message(Message(MessageType.FILE, chunk))
+                self.send_message(Message(MessageType.END_OF_FILE))
+        except OSError:
+            raise FileReadError(f"Failed to read file {filepath}")
 
     def receive_file(self, filename: str, save_path: Path = None):
         """
@@ -142,10 +163,6 @@ class BaseClientThread(threading.Thread):
             MessageTypeError: When the next message is not of type MessageType.FILE.
             FileWriteError: When an error occurs while writing the file.
         """
-        file_message = self.receive_message()
-        if not file_message.is_type(MessageType.FILE):
-            raise MessageTypeError(f"Expected type: FILE. Received: {file_message.get_type()}")
-
         if not save_path:  # Server-side handling
             save_path = config.DOWNLOAD_DIR / f"{self.__address[0]}:{self.__address[1]}"
 
@@ -153,8 +170,17 @@ class BaseClientThread(threading.Thread):
             os.makedirs(save_path, exist_ok=True)
 
         try:
-            with open(save_path / filename, 'wb') as f:
-                f.write(file_message.data)
+            file_path = save_path / filename
+            with open(file_path, 'wb') as file:
+                while True:
+                    message = self.receive_message()
+                    if message.is_type(MessageType.END_OF_FILE):
+                        break
+
+                    if not message.is_type(MessageType.FILE):
+                        raise MessageTypeError(
+                            f"Invalid message type provided: {message.get_type()}, expected FILE type")
+                    file.write(message.data)
         except OSError:
             raise FileWriteError(f"Failed to save file {save_path}")
 
