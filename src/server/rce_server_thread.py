@@ -2,9 +2,9 @@ import socket
 from typing import Any
 
 from src.core.base_client import BaseClientThread
-from src.core.exception import FileReadError, FileWriteError, MessageTypeError
+from src.core.exception import FileWriteError, MessageTypeError
 from src.core.logger import Logger
-from src.core.message import MessageType, Message
+from src.core.message import MessageType
 from src.core.shared import Shared
 
 
@@ -41,9 +41,8 @@ class RCEServerThread(BaseClientThread):
                     self.__logger.error(message.data.decode(), prefix=self.__log_prefix)
                 else:
                     self.__logger.debug(f"Unknown message {message.get_type()}", prefix=self.__log_prefix)
-            except (FileNotFoundError, MessageTypeError, FileReadError, FileWriteError) as e:
+            except (MessageTypeError, FileWriteError) as e:
                 self.__logger.error(e, prefix=self.__log_prefix)
-                self.send_message(Message(message_type=MessageType.ERROR, data=e.args[0].encode()))
             except OSError as e:
                 self.__logger.error(f"DISCONNECTED => {e}", prefix=self.__log_prefix)
                 self.__close_and_remove_client()
