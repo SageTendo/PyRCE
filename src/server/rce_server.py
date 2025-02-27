@@ -7,7 +7,7 @@ import config
 from src.core.exception import FileReadError
 from src.core.logger import Logger
 from src.core.message import Message
-from src.core.shared import Shared
+from src.core.observer import RCEEventObserver
 from src.server.rce_server_thread import RCEServerThread
 
 
@@ -17,12 +17,16 @@ class RCEServer:
     """
     __socket: socket.socket
     __running = False
+    client_synchronize_mutex = threading.Lock()
+    connected_clients = dict[tuple[str, int], RCEServerThread]()
 
     def __init__(self, host: str, port: int, debug=False):
         self.__host = host
         self.__port = port
         self.connection_thread: Optional[threading.Thread] = None
-        self.__logger = Logger(self.__class__.__name__, debug)
+        self.observers: list[RCEEventObserver] = []
+        self.observers.append(Logger(self.__class__.__name__, debug))
+        self.debug = debug
 
     def __init_socket(self):
         """
@@ -43,10 +47,9 @@ class RCEServer:
         while self.__running:
             try:
                 conn, addr = self.__socket.accept()
-                with Shared.client_synchronize_mutex:
-                    Shared.connected_clients[addr] = RCEServerThread(conn, addr, self.__logger)
-                    Shared.connected_clients[addr].start()
-                self.__logger.info(f"Client {addr} connected")
+                with self.client_synchronize_mutex:
+                    self.connected_clients[addr] = RCEServerThread(conn, addr, self)
+                    self.connected_clients[addr].start()
             except socket.timeout:
                 pass
 
@@ -55,41 +58,48 @@ class RCEServer:
         Starts the RCE server by initializing the socket and starting the connection thread which listens for and
         handles new client connections.
         """
+        if self.__running:
+            return False
+
         try:
             self.__init_socket()
-            self.__logger.info(f"Server started at {self.__host}:{self.__port}")
-            self.__logger.info("Listening for connections...")
-
+            self.on_info(f"Server started at {self.__host}:{self.__port}")
+            self.on_info("Listening for connections...")
             self.connection_thread = threading.Thread(target=self.__connection_thread)
             self.connection_thread.start()
+            return True
         except ConnectionRefusedError:
-            self.__logger.error(f"Connection to {self.__host}:{self.__port} refused")
+            self.on_error(f"Connection to {self.__host}:{self.__port} refused")
+        return False
 
     def stop(self):
         """
         Stops the RCE server by closing all client connections and the socket.
         """
-        self.__running = False
+        if not self.__running:
+            return False
 
+        self.__running = False
         self.__close_all_clients()
         if self.connection_thread:
             self.connection_thread.join()
         self.__socket.close()
+        return True
 
     def broadcast_message(self, message: Message):
         """
         Synchronously sends a message to all connected clients.
         :param message: A message object representing the message to be sent to all connected clients.
         """
-        with Shared.client_synchronize_mutex:
-            for client in Shared.connected_clients.values():
+        with self.client_synchronize_mutex:
+            for client in self.connected_clients.values():
                 if not client.is_connected():
                     continue
 
                 try:
                     client.send_message(message)
                 except OSError as e:
-                    self.__logger.error(f"Failed to send message to {client.get_address()}:{e}")
+                    self.on_error(f"Failed to send message to {client.get_address()}:{e}")
 
     def send_message_to_client(self, client_address: str, message: Message):
         """
@@ -101,7 +111,7 @@ class RCEServer:
             if client := self.__get_client_from_address(client_address):
                 client.send_message(message)
         except OSError as e:
-            self.__logger.error(f"Failed to send message to {client_address}: {e}")
+            self.on_error(f"Failed to send message to {client_address}: {e}")
 
     def send_file_to_client(self, client_address: str, filename: str, destination_path: str = ""):
         """
@@ -114,9 +124,9 @@ class RCEServer:
             if client := self.__get_client_from_address(client_address):
                 client.send_file(filename, destination_path)
         except (FileNotFoundError, FileReadError) as e:
-            self.__logger.error(e)
+            self.on_error(e)
         except OSError as e:
-            self.__logger.error(f"Failed to send file to {client_address}: {e}")
+            self.on_error(f"Failed to send file to {client_address}: {e}")
 
     def __get_client_from_address(self, client_address: str):
         """
@@ -125,14 +135,14 @@ class RCEServer:
         :return: The client thread corresponding to the client address
         """
         if not re.match(config.IPV4_PATTERN, client_address):
-            self.__logger.error(f"Invalid client address: {client_address}")
+            self.on_error(f"Invalid client address: {client_address}")
             return
 
         host, port = client_address.split(":")
         client_addr = (host, int(port))
-        with Shared.client_synchronize_mutex:
-            if not (client := Shared.connected_clients.get(client_addr)) or not client.is_connected():
-                self.__logger.error(f"Client '{client_addr}' not found")
+        with self.client_synchronize_mutex:
+            if not (client := self.connected_clients.get(client_addr)) or not client.is_connected():
+                self.on_error(f"Client '{client_addr}' not found")
                 return
             return client
 
@@ -140,16 +150,16 @@ class RCEServer:
         """
         Synchronously closes all connected clients and clears the connected clients dictionary.
         """
-        with Shared.client_synchronize_mutex:
-            if len(Shared.connected_clients) == 0:
+        with self.client_synchronize_mutex:
+            if len(self.connected_clients) == 0:
                 return
 
-            for client in Shared.connected_clients.values():
+            for client in self.connected_clients.values():
                 if not client.is_connected():
                     continue
                 client.close()
-            Shared.connected_clients.clear()
-            self.__logger.debug("All clients disconnected")
+            self.connected_clients.clear()
+            self.on_debug("All clients disconnected")
 
     def is_running(self) -> bool:
         return self.__running
@@ -162,3 +172,33 @@ class RCEServer:
 
     def get_address(self):
         return self.__host, self.__port
+
+    def add_observer(self, observer: RCEEventObserver):
+        self.observers.append(observer)
+
+    def on_connect(self, client_address: str):
+        for observer in self.observers:
+            observer.on_connect(client_address)
+
+    def on_disconnect(self, client_address: str):
+        for observer in self.observers:
+            observer.on_disconnect(client_address)
+
+    def on_message(self, sender: str, message: Message):
+        for observer in self.observers:
+            observer.on_message(sender, message.data.decode())
+
+    def on_info(self, message: str, prefix=""):
+        for observer in self.observers:
+            observer.on_info(message, prefix)
+
+    def on_debug(self, message: str, prefix=""):
+        if not self.debug:
+            return
+
+        for observer in self.observers:
+            observer.on_debug(message, prefix)
+
+    def on_error(self, error: str, prefix=""):
+        for observer in self.observers:
+            observer.on_error(error, prefix)

