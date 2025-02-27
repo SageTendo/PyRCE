@@ -6,7 +6,6 @@ from src.core.observer import RCEEventObserver
 class Logger(RCEEventObserver):
     """
     Custom logger class for logging messages with different colors and prefixes.
-    A mutex is used to prevent concurrent access to a shared logger instance.
     """
 
     class Colors:
