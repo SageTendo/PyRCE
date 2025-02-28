@@ -8,6 +8,7 @@ class MessageType(Enum):
     ERROR = auto()
     DISCONNECT = auto()
     ECHO = auto()
+    CMD = auto()
     FILE_UPLOAD = auto()
     FILE_DOWNLOAD = auto()
     FILE = auto()

