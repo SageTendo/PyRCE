@@ -4,8 +4,7 @@ import abc
 class RCEEventObserver:
     """
     Interface for the implementation of observers for RCE events that the server may emit
-    i.e. connection, disconnection, messages, logs.
-    errors, etc.
+    i.e. connection, disconnection, messages, logs, errors, etc.
     """
 
     @abc.abstractmethod
