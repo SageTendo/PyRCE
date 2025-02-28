@@ -164,41 +164,63 @@ class RCEServer:
     def is_running(self) -> bool:
         return self.__running
 
-    def get_host(self):
-        return self.__host
-
-    def get_port(self):
-        return self.__port
-
-    def get_address(self):
-        return self.__host, self.__port
-
     def add_observer(self, observer: RCEEventObserver):
-        self.observers.append(observer)
+        """
+        Adds an observer to the list of observers listening for events
+        :param observer: The observer to be added
+        """
+        if observer not in self.observers:
+            self.observers.append(observer)
 
     def on_connect(self, client_address: str):
+        """
+        Notifies all observers of a client connection
+        :param client_address: The address of the client
+        """
         for observer in self.observers:
             observer.on_connect(client_address)
 
     def on_disconnect(self, client_address: str):
+        """
+        Notifies all observers of a client disconnection
+        :param client_address: The address of the client
+        """
         for observer in self.observers:
             observer.on_disconnect(client_address)
 
     def on_message(self, sender: str, message: Message):
+        """
+        Notifies all observers of a message received from a client
+        :param sender: The address of the client that sent the message
+        :param message: The message sent by the client
+        """
         for observer in self.observers:
             observer.on_message(sender, message.data.decode())
 
     def on_info(self, message: str, prefix=""):
+        """
+        Notifies all observers of an information log
+        :param message: The message to be logged
+        :param prefix: An optional prefix to be added to the message (e.g. a client address)
+        """
         for observer in self.observers:
             observer.on_info(message, prefix)
 
     def on_debug(self, message: str, prefix=""):
-        if not self.debug:
-            return
-
-        for observer in self.observers:
-            observer.on_debug(message, prefix)
+        """
+        Notifies all observers of a debug log
+        :param message: The message to be logged
+        :param prefix: An optional prefix to be added to the message (e.g. a client address)
+        """
+        if self.debug:
+            for observer in self.observers:
+                observer.on_debug(message, prefix)
 
     def on_error(self, error: str, prefix=""):
+        """
+        Notifies all observers of an error
+        :param error: The error message to be logged
+        :param prefix: The prefix to be added to the error message
+        """
         for observer in self.observers:
             observer.on_error(error, prefix)
