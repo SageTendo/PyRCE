@@ -2,7 +2,7 @@ import argparse
 
 import config
 from src.client.rce_client import RCEClient
-from src.console.server_cli import ServerCLI
+from src.console.server_gui import ServerGUI
 from src.server.rce_server import RCEServer
 
 arg_parser = argparse.ArgumentParser()
@@ -25,13 +25,13 @@ def main():
         except KeyboardInterrupt:
             client.close()
     elif args.mode == 'server':
-        server_cli = None
+        gui = None
         try:
             server = RCEServer(args.host, args.port, args.debug)
-            server_cli = ServerCLI(server)
-            ServerCLI(server).cmdloop()
+            gui = ServerGUI(server)
+            gui.build()
         except KeyboardInterrupt:
-            server_cli.do_exit("")
+            gui.close_windows()
             exit(0)
     else:
         print("Unknown mode: %s" % args.mode)
