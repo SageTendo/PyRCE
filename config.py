@@ -5,6 +5,7 @@ HOST = "localhost"
 PORT = 6000
 
 IPV4_PATTERN = re.compile(r'^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{1,5})$')
+DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = BASE_DIR / "Downloads"
