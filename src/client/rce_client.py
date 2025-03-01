@@ -29,8 +29,8 @@ class RCEClient(BaseClientThread):
 
     def run(self):
         """
-        Runs the client thread which handles incoming messages from the server and performs actions based on the
-        message type.
+        Runs the client thread which handles incoming messages from the server
+        and performs actions based on the message type.
         """
         self.__logger.on_info("Listening for messages...")
         while self.is_connected():
