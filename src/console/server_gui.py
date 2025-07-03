@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog
 from datetime import datetime
 from enum import Enum
 # from tkinter import filedialog
@@ -49,9 +49,8 @@ class ServerGUI(RCEEventObserver):
         self.message_input = tk.Entry(self.content_bottom, font=('', 10, 'bold'))
         self.send_message_button = tk.Button(self.content_bottom, text="Send Message", font=('', 12, 'bold'),
                                              command=self.__handle_message_input)
-        # TODO: Add file input
-        # self.file_choose_button = tk.Button(self.content_bottom, text="Choose File", font=('', 12, 'bold'),
-        #                                     command=self.__handle_file_input)
+        self.file_choose_button = tk.Button(self.content_bottom, text="Choose File", font=('', 12, 'bold'),
+                                            command=self.__handle_file_input)
 
         # Outputs
         self.messages_area = tk.Text(self.content_top, font=('', 10, 'bold'))
@@ -80,7 +79,7 @@ class ServerGUI(RCEEventObserver):
         self.client_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         self.message_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.send_message_button.pack(side=tk.LEFT, fill=tk.X)
-        # TODO self.file_choose_button.pack(side=tk.LEFT, fill=tk.X)
+        self.file_choose_button.pack(side=tk.LEFT, fill=tk.X)
 
     def build(self):
         self.build_header()
@@ -121,15 +120,15 @@ class ServerGUI(RCEEventObserver):
             for client in self.__target_clients:
                 self.__server.send_message_to_client(client, message)
 
-    # TODO: Add file input
-    # def __handle_file_input(self):
-    #     file_path = filedialog.askopenfilename()
-    #     if not file_path:
-    #         self.__update_message_area("No file selected", color=ServerGUI.TextColors.RED)
-    #         return
-    #
-    #     self.__update_message_area(f"Uploading {file_path}", color=ServerGUI.TextColors.FORREST_GREEN)
-    #     # TODO: self.__server.send_file_to_client(self.__target_client, file_path)
+    def __handle_file_input(self):
+        file_path = filedialog.askopenfilename()
+        if not file_path:
+            self.__update_message_area("No file selected", color=ServerGUI.TextColors.RED)
+            return
+
+        self.__update_message_area(f"Uploading {file_path}", color=ServerGUI.TextColors.FORREST_GREEN)
+        for client in self.__target_clients:
+            self.__server.send_file_to_client(client, file_path)
 
     @staticmethod
     def __handle_command(command: str, args: list) -> Optional[Message]:
@@ -156,12 +155,24 @@ class ServerGUI(RCEEventObserver):
     def __clear_message_input(self):
         self.message_input.delete(0, tk.END)
 
+    def __handle_client_selection(self):
+        for client, var in self.__client_vars.items():
+            if var.get():
+                self.__target_clients.append(client)
+            else:
+                self.__target_clients.remove(client)
+
+        # If no client is selected, all clients are selected
+        if not self.__target_clients:
+            self.__target_clients = [client for client, var in self.__client_vars.items()]
+
     def on_connect(self, client_address: str):
         self.__update_message_area(f"{client_address} connected", color=ServerGUI.TextColors.FORREST_GREEN)
         var = tk.BooleanVar()
         self.__client_vars[client_address] = var
         checkbox = ttk.Checkbutton(self.client_frame, text=client_address, variable=var)
         checkbox.pack(anchor='w')
+        checkbox.selection_handle(self.__handle_client_selection)
 
     def on_disconnect(self, client_address: str):
         self.__update_message_area(f"{client_address} disconnected", color=ServerGUI.TextColors.FORREST_GREEN)
